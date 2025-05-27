@@ -83,9 +83,7 @@ impl<W: Write> serde::Serializer for &mut Serializer<'_, W> {
     }
 
     fn serialize_str(self, v: &str) -> std::result::Result<Self::Ok, Self::Error> {
-        self.output.write_all(b"\"")?;
-        self.output.write_all(v.as_bytes())?;
-        self.output.write_all(b"\"")?;
+        self.output.write_all(format!("{v:?}").as_bytes())?;
         Ok(())
     }
 

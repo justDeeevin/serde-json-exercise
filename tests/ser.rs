@@ -10,6 +10,13 @@ fn string() {
 }
 
 #[test]
+fn escape_string() {
+    let string = "droddy\"rox\"";
+    let json = json::to_string(&string).expect("Failed to serialize");
+    assert_eq!(json, "\"droddy\\\"rox\\\"\"");
+}
+
+#[test]
 fn seq() {
     assert_eq!(
         json::to_string(&[1, 2, 3]).expect("Failed to serialize"),
