@@ -83,7 +83,10 @@ impl<W: Write> serde::Serializer for &mut Serializer<'_, W> {
     }
 
     fn serialize_str(self, v: &str) -> std::result::Result<Self::Ok, Self::Error> {
-        self.output.write_all(format!("{v:?}").as_bytes())?;
+        self.output.write_all(b"\"")?;
+        let escaped = v.chars().map(crate::parse::escape).collect::<String>();
+        self.output.write_all(escaped.as_bytes())?;
+        self.output.write_all(b"\"")?;
         Ok(())
     }
 

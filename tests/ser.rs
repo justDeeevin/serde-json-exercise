@@ -17,6 +17,13 @@ fn escape_string() {
 }
 
 #[test]
+fn escape_ascii_control() {
+    let string = "\x0F";
+    let json = json::to_string(&string).expect("Failed to serialize");
+    assert_eq!(json, "\"\\u000f\"");
+}
+
+#[test]
 fn seq() {
     assert_eq!(
         json::to_string(&[1, 2, 3]).expect("Failed to serialize"),
