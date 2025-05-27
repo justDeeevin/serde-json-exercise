@@ -4,7 +4,7 @@ use serde_json_exercise as json;
 #[test]
 fn string() {
     assert_eq!(
-        json::to_string(&"droddyrox").expect("serialization to succeed"),
+        json::to_string(&"droddyrox").expect("Failed to serialize"),
         "\"droddyrox\""
     );
 }
@@ -12,7 +12,7 @@ fn string() {
 #[test]
 fn seq() {
     assert_eq!(
-        json::to_string(&[1, 2, 3]).expect("serialization to succeed"),
+        json::to_string(&[1, 2, 3]).expect("Failed to serialize"),
         "[1,2,3]"
     );
 }
@@ -20,7 +20,7 @@ fn seq() {
 #[test]
 fn map() {
     let map = std::collections::HashMap::from([("a", 1), ("b", 2)]);
-    let string = json::to_string(&map).expect("serialization to succeed");
+    let string = json::to_string(&map).expect("Failed to serialize");
     // HashMap ordering is not guarenteed
     assert!(string == "{\"a\":1,\"b\":2}" || string == "{\"b\":2,\"a\":1}");
 }
@@ -34,7 +34,7 @@ fn bad_key() {
 #[test]
 fn tuple() {
     assert_eq!(
-        json::to_string(&(1, 2, 3)).expect("serialization to succeed"),
+        json::to_string(&(1, 2, 3)).expect("Failed to serialize"),
         "[1,2,3]"
     );
 }
@@ -44,7 +44,7 @@ fn tuple_struct() {
     #[derive(Serialize)]
     struct Point(i32, i32);
     assert_eq!(
-        json::to_string(&Point(1, 2)).expect("serialization to succeed"),
+        json::to_string(&Point(1, 2)).expect("Failed to serialize"),
         "[1,2]"
     );
 }
@@ -56,7 +56,7 @@ fn newtype_variant() {
         First(String),
     }
     assert_eq!(
-        json::to_string(&Name::First("droddyrox".to_string())).expect("serialization to succeed"),
+        json::to_string(&Name::First("droddyrox".to_string())).expect("Failed to serialize"),
         "{\"First\":\"droddyrox\"}"
     );
 }
@@ -68,7 +68,7 @@ fn tuple_variant() {
         Rgb(u8, u8, u8),
     }
     assert_eq!(
-        json::to_string(&Color::Rgb(0, 0, 0)).expect("serialization to succeed"),
+        json::to_string(&Color::Rgb(0, 0, 0)).expect("Failed to serialize"),
         "{\"Rgb\":[0,0,0]}"
     );
 }
@@ -80,7 +80,7 @@ fn struct_variant() {
         Rgb { r: u8, g: u8, b: u8 },
     }
     assert_eq!(
-        json::to_string(&Color::Rgb { r: 0, g: 0, b: 0 }).expect("serialization to succeed"),
+        json::to_string(&Color::Rgb { r: 0, g: 0, b: 0 }).expect("Failed to serialize"),
         "{\"Rgb\":{\"r\":0,\"g\":0,\"b\":0}}"
     );
 }
@@ -89,8 +89,5 @@ fn struct_variant() {
 fn newtype_struct() {
     #[derive(Serialize)]
     struct Age(u8);
-    assert_eq!(
-        json::to_string(&Age(0)).expect("serialization to succeed"),
-        "0"
-    );
+    assert_eq!(json::to_string(&Age(0)).expect("Failed to serialize"), "0");
 }
