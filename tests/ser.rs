@@ -1,0 +1,96 @@
+use serde::Serialize;
+use serde_json_exercise as json;
+
+#[test]
+fn string() {
+    assert_eq!(
+        json::to_string(&"droddyrox").expect("serialization to succeed"),
+        "\"droddyrox\""
+    );
+}
+
+#[test]
+fn seq() {
+    assert_eq!(
+        json::to_string(&[1, 2, 3]).expect("serialization to succeed"),
+        "[1,2,3]"
+    );
+}
+
+#[test]
+fn map() {
+    let map = std::collections::HashMap::from([("a", 1), ("b", 2)]);
+    let string = json::to_string(&map).expect("serialization to succeed");
+    // HashMap ordering is not guarenteed
+    assert!(string == "{\"a\":1,\"b\":2}" || string == "{\"b\":2,\"a\":1}");
+}
+
+#[test]
+fn bad_key() {
+    let map = std::collections::HashMap::from([(1, 1), (2, 2)]);
+    assert!(json::to_string(&map).is_err());
+}
+
+#[test]
+fn tuple() {
+    assert_eq!(
+        json::to_string(&(1, 2, 3)).expect("serialization to succeed"),
+        "[1,2,3]"
+    );
+}
+
+#[test]
+fn tuple_struct() {
+    #[derive(Serialize)]
+    struct Point(i32, i32);
+    assert_eq!(
+        json::to_string(&Point(1, 2)).expect("serialization to succeed"),
+        "[1,2]"
+    );
+}
+
+#[test]
+fn newtype_variant() {
+    #[derive(Serialize)]
+    enum Name {
+        First(String),
+    }
+    assert_eq!(
+        json::to_string(&Name::First("droddyrox".to_string())).expect("serialization to succeed"),
+        "{\"First\":\"droddyrox\"}"
+    );
+}
+
+#[test]
+fn tuple_variant() {
+    #[derive(Serialize)]
+    enum Color {
+        Rgb(u8, u8, u8),
+    }
+    assert_eq!(
+        json::to_string(&Color::Rgb(0, 0, 0)).expect("serialization to succeed"),
+        "{\"Rgb\":[0,0,0]}"
+    );
+}
+
+#[test]
+fn struct_variant() {
+    #[derive(Serialize)]
+    enum Color {
+        Rgb { r: u8, g: u8, b: u8 },
+    }
+    assert_eq!(
+        json::to_string(&Color::Rgb { r: 0, g: 0, b: 0 }).expect("serialization to succeed"),
+        "{\"Rgb\":{\"r\":0,\"g\":0,\"b\":0}}"
+    );
+}
+
+#[test]
+fn newtype_struct() {
+    #[derive(Serialize)]
+    struct Age(u8);
+    assert_eq!(
+        json::to_string(&Age(0)).expect("serialization to succeed"),
+        "0"
+    );
+}
