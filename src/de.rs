@@ -246,11 +246,15 @@ pub fn from_str<T: DeserializeOwned>(s: &str) -> Result<T> {
 }
 
 pub fn from_bytes<T: DeserializeOwned>(bytes: &[u8]) -> Result<T> {
-    todo!()
+    let mut de = Deserializer::new(bytes);
+    let t = T::deserialize(&mut de)?;
+    Ok(t)
 }
 
 pub fn from_reader<T: DeserializeOwned>(reader: &mut impl Read) -> Result<T> {
-    todo!()
+    let mut de = Deserializer::new(reader);
+    let t = T::deserialize(&mut de)?;
+    Ok(t)
 }
 
 fn unescape(s: &str) -> Result<String> {
