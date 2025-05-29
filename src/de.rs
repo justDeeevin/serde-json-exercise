@@ -1,4 +1,7 @@
-use std::io::{BufRead, BufReader, Read};
+use std::{
+    io::{BufRead, BufReader, Read},
+    num::ParseIntError,
+};
 
 use serde::{
     de::{DeserializeOwned, MapAccess, SeqAccess},
@@ -50,6 +53,45 @@ impl<R: Read> Deserializer<R> {
         self.hold = Some(buf[0]);
         Ok(buf[0] as char)
     }
+
+    fn get_integer(&mut self, mut buf: Vec<char>) -> Result<String> {
+        loop {
+            let next = self.peek_char();
+            if let Err(Error::Io(e)) = next {
+                if e.kind() == std::io::ErrorKind::UnexpectedEof {
+                    break;
+                } else {
+                    return Err(Error::Io(e));
+                }
+            } else if !(next?).is_ascii_digit() {
+                break;
+            }
+            buf.push(self.next_char()?);
+        }
+        Ok(buf.into_iter().collect::<String>())
+    }
+
+    fn parse_int<V: std::str::FromStr<Err = ParseIntError>>(&mut self) -> Result<V> {
+        let mut buf = Vec::new();
+        if self.peek_char()? == '-' {
+            buf.push(self.next_char()?);
+        }
+        let string = self.get_integer(buf)?;
+        if string == "-" {
+            return Err(Error::Unexpected {
+                found: "-".to_string(),
+                expected: Some("number".to_string()),
+            });
+        }
+
+        // Previous checks should guarentee that the string is parseable
+        Ok(string.parse()?)
+    }
+
+    fn parse_uint<V: std::str::FromStr<Err = ParseIntError>>(&mut self) -> Result<V> {
+        let string = self.get_integer(Vec::new())?;
+        Ok(string.parse()?)
+    }
 }
 
 impl<'de, R: Read> serde::Deserializer<'de> for &mut Deserializer<R> {
@@ -66,9 +108,7 @@ impl<'de, R: Read> serde::Deserializer<'de> for &mut Deserializer<R> {
                 '{' => self.deserialize_map(visitor),
                 'n' => self.deserialize_unit(visitor),
                 't' | 'f' => self.deserialize_bool(visitor),
-                '-' | '0'..='9' => {
-                    todo!("Parse numbers")
-                }
+                '-' | '0'..='9' => todo!("Parse numbers"),
                 ' ' => {
                     self.next_char()?;
                     continue;
@@ -172,7 +212,64 @@ impl<'de, R: Read> serde::Deserializer<'de> for &mut Deserializer<R> {
         }
     }
 
-    forward_to_deserialize_any! {i8 i16 i32 i64 u8 u16 u32 u64 f32 f64 char string bytes byte_buf option unit_struct newtype_struct tuple tuple_struct struct enum identifier ignored_any}
+    fn deserialize_i8<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
+    where
+        V: serde::de::Visitor<'de>,
+    {
+        visitor.visit_i8(self.parse_int()?)
+    }
+
+    fn deserialize_i16<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
+    where
+        V: serde::de::Visitor<'de>,
+    {
+        visitor.visit_i16(self.parse_int()?)
+    }
+
+    fn deserialize_i32<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
+    where
+        V: serde::de::Visitor<'de>,
+    {
+        visitor.visit_i32(self.parse_int()?)
+    }
+
+    fn deserialize_i64<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
+    where
+        V: serde::de::Visitor<'de>,
+    {
+        visitor.visit_i64(self.parse_int()?)
+    }
+
+    fn deserialize_u8<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
+    where
+        V: serde::de::Visitor<'de>,
+    {
+        visitor.visit_u8(self.parse_uint()?)
+    }
+
+    fn deserialize_u16<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
+    where
+        V: serde::de::Visitor<'de>,
+    {
+        visitor.visit_u16(self.parse_uint()?)
+    }
+
+    fn deserialize_u32<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
+    where
+        V: serde::de::Visitor<'de>,
+    {
+        visitor.visit_u32(self.parse_uint()?)
+    }
+
+    fn deserialize_u64<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
+    where
+        V: serde::de::Visitor<'de>,
+    {
+        visitor.visit_u64(self.parse_uint()?)
+    }
+
+    forward_to_deserialize_any! {char string bytes byte_buf option unit_struct newtype_struct tuple tuple_struct struct enum identifier ignored_any
+    f32 f64}
 }
 
 struct CommaSeparated<'a, R: Read> {

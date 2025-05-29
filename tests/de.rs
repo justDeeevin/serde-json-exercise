@@ -40,9 +40,9 @@ fn unclosed_string() {
 
 #[test]
 fn seq() {
-    let input = r#"["1","2","3"]"#;
-    let json = json::from_str::<Vec<String>>(input).expect("Failed to deserialize");
-    assert_eq!(json, vec!["1", "2", "3"]);
+    let input = r#"[1,2,3]"#;
+    let json = json::from_str::<Vec<u8>>(input).expect("Failed to deserialize");
+    assert_eq!(json, vec![1, 2, 3]);
 }
 
 #[test]
