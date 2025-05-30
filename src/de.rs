@@ -29,7 +29,12 @@ impl<R: Read> Deserializer<R> {
             return Ok(hold);
         }
         let mut buf = [0];
-        self.input.read_exact(&mut buf)?;
+        loop {
+            self.input.read_exact(&mut buf)?;
+            if !(buf[0] as char).is_whitespace() {
+                break;
+            }
+        }
         Ok(buf[0])
     }
 
@@ -50,7 +55,12 @@ impl<R: Read> Deserializer<R> {
             return Ok(hold);
         }
         let mut buf = [0];
-        self.input.read_exact(&mut buf)?;
+        loop {
+            self.input.read_exact(&mut buf)?;
+            if !(buf[0] as char).is_whitespace() {
+                break;
+            }
+        }
         self.hold = Some(buf[0]);
         Ok(buf[0])
     }
@@ -64,10 +74,7 @@ impl<R: Read> Deserializer<R> {
                 }
                 Err(e) => return Err(e),
                 Ok(peek) => {
-                    if (peek as char).is_whitespace() {
-                        self.next()?;
-                        continue;
-                    } else if !peek.is_ascii_digit() {
+                    if !peek.is_ascii_digit() {
                         break;
                     }
                 }
@@ -213,10 +220,6 @@ impl<'de, R: Read> serde::Deserializer<'de> for &mut Deserializer<R> {
                 'n' => self.deserialize_unit(visitor),
                 't' | 'f' => self.deserialize_bool(visitor),
                 '-' | '0'..='9' => self.parse_number(visitor),
-                w if w.is_whitespace() => {
-                    self.next()?;
-                    continue;
-                }
                 c => Err(Error::Unexpected {
                     found: c.to_string(),
                     expected: None,
