@@ -53,3 +53,10 @@ fn map() {
     assert_eq!(json.get("a"), Some(&"droddy".to_string()));
     assert_eq!(json.get("b"), Some(&"rox".to_string()));
 }
+
+#[test]
+fn float() {
+    let input = "[-11.22, 1]";
+    let json = json::from_str::<Vec<f32>>(input).expect("Failed to deserialize");
+    assert_eq!(json, [-11.22, 1.0]);
+}

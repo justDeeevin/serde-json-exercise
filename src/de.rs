@@ -1,10 +1,11 @@
 use std::{
     io::{BufRead, BufReader, Read},
-    num::ParseIntError,
+    num::{ParseFloatError, ParseIntError},
+    str::FromStr,
 };
 
 use serde::{
-    de::{DeserializeOwned, MapAccess, SeqAccess},
+    de::{DeserializeOwned, MapAccess, SeqAccess, Visitor},
     forward_to_deserialize_any,
 };
 
@@ -54,6 +55,7 @@ impl<R: Read> Deserializer<R> {
         Ok(buf[0] as char)
     }
 
+    /// Collect the digits of an integer
     fn get_integer(&mut self, mut buf: Vec<char>) -> Result<String> {
         loop {
             let next = self.peek_char();
@@ -63,7 +65,12 @@ impl<R: Read> Deserializer<R> {
                 } else {
                     return Err(Error::Io(e));
                 }
-            } else if !(next?).is_ascii_digit() {
+            }
+            let next = next?;
+            if next.is_whitespace() {
+                self.next_char()?;
+                continue;
+            } else if !next.is_ascii_digit() {
                 break;
             }
             buf.push(self.next_char()?);
@@ -71,26 +78,71 @@ impl<R: Read> Deserializer<R> {
         Ok(buf.into_iter().collect::<String>())
     }
 
-    fn parse_int<V: std::str::FromStr<Err = ParseIntError>>(&mut self) -> Result<V> {
+    /// Parse a signed integer
+    fn parse_int<V: FromStr<Err = ParseIntError>>(&mut self) -> Result<V> {
         let mut buf = Vec::new();
         if self.peek_char()? == '-' {
             buf.push(self.next_char()?);
         }
         let string = self.get_integer(buf)?;
-        if string == "-" {
-            return Err(Error::Unexpected {
-                found: "-".to_string(),
-                expected: Some("number".to_string()),
-            });
-        }
-
         // Previous checks should guarentee that the string is parseable
         Ok(string.parse()?)
     }
 
-    fn parse_uint<V: std::str::FromStr<Err = ParseIntError>>(&mut self) -> Result<V> {
+    /// Parse an unsigned integer
+    fn parse_uint<V: FromStr<Err = ParseIntError>>(&mut self) -> Result<V> {
         let string = self.get_integer(Vec::new())?;
         Ok(string.parse()?)
+    }
+
+    /// Parse a floating-point number
+    fn parse_float<V: FromStr<Err = ParseFloatError>>(&mut self) -> Result<V> {
+        let mut buf = Vec::new();
+        if self.peek_char()? == '-' {
+            buf.push(self.next_char()?);
+        }
+        let mut string = self.get_integer(buf)?;
+        if self.peek_char()? == '.' {
+            let buf = vec![self.next_char()?];
+            string += &self.get_integer(buf)?;
+        }
+        if self.peek_char()? == 'e' || self.peek_char()? == 'E' {
+            let buf = vec![self.next_char()?];
+            string += &self.get_integer(buf)?;
+        }
+
+        Ok(string.parse()?)
+    }
+
+    // Unsure how to best test this since it only is used in deserialize_any
+    /// Collect the digits of a number and visits either an i64, u64, or f64
+    fn parse_number<'de, V: Visitor<'de>>(&mut self, visitor: V) -> Result<V::Value> {
+        let mut buf = Vec::new();
+        let mut signed = false;
+        let mut float = false;
+        if self.peek_char()? == '-' {
+            signed = true;
+            buf.push(self.next_char()?);
+        }
+        let mut string = self.get_integer(buf)?;
+        if self.peek_char()? == '.' {
+            float = true;
+            let buf = vec![self.next_char()?];
+            string += &self.get_integer(buf)?;
+        }
+        if self.peek_char()? == 'e' || self.peek_char()? == 'E' {
+            float = true;
+            let buf = vec![self.next_char()?];
+            string += &self.get_integer(buf)?;
+        }
+
+        if float {
+            visitor.visit_f64(string.parse()?)
+        } else if signed {
+            visitor.visit_i64(string.parse()?)
+        } else {
+            visitor.visit_u64(string.parse()?)
+        }
     }
 }
 
@@ -99,7 +151,7 @@ impl<'de, R: Read> serde::Deserializer<'de> for &mut Deserializer<R> {
 
     fn deserialize_any<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
-        V: serde::de::Visitor<'de>,
+        V: Visitor<'de>,
     {
         loop {
             let out = match self.peek_char()? {
@@ -108,8 +160,8 @@ impl<'de, R: Read> serde::Deserializer<'de> for &mut Deserializer<R> {
                 '{' => self.deserialize_map(visitor),
                 'n' => self.deserialize_unit(visitor),
                 't' | 'f' => self.deserialize_bool(visitor),
-                '-' | '0'..='9' => todo!("Parse numbers"),
-                ' ' => {
+                '-' | '0'..='9' => self.parse_number(visitor),
+                w if w.is_whitespace() => {
                     self.next_char()?;
                     continue;
                 }
@@ -124,7 +176,7 @@ impl<'de, R: Read> serde::Deserializer<'de> for &mut Deserializer<R> {
 
     fn deserialize_str<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
-        V: serde::de::Visitor<'de>,
+        V: Visitor<'de>,
     {
         self.expect_next('"')?;
 
@@ -146,7 +198,7 @@ impl<'de, R: Read> serde::Deserializer<'de> for &mut Deserializer<R> {
 
     fn deserialize_seq<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
-        V: serde::de::Visitor<'de>,
+        V: Visitor<'de>,
     {
         self.expect_next('[')?;
         visitor.visit_seq(CommaSeparated::new(self))
@@ -154,7 +206,7 @@ impl<'de, R: Read> serde::Deserializer<'de> for &mut Deserializer<R> {
 
     fn deserialize_map<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
-        V: serde::de::Visitor<'de>,
+        V: Visitor<'de>,
     {
         self.expect_next('{')?;
         visitor.visit_map(CommaSeparated::new(self))
@@ -162,7 +214,7 @@ impl<'de, R: Read> serde::Deserializer<'de> for &mut Deserializer<R> {
 
     fn deserialize_unit<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
-        V: serde::de::Visitor<'de>,
+        V: Visitor<'de>,
     {
         let mut buf = [0; 4];
         self.input.read_exact(&mut buf)?;
@@ -178,7 +230,7 @@ impl<'de, R: Read> serde::Deserializer<'de> for &mut Deserializer<R> {
 
     fn deserialize_bool<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
-        V: serde::de::Visitor<'de>,
+        V: Visitor<'de>,
     {
         match self.peek_char()? {
             't' => {
@@ -214,62 +266,75 @@ impl<'de, R: Read> serde::Deserializer<'de> for &mut Deserializer<R> {
 
     fn deserialize_i8<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
-        V: serde::de::Visitor<'de>,
+        V: Visitor<'de>,
     {
         visitor.visit_i8(self.parse_int()?)
     }
 
     fn deserialize_i16<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
-        V: serde::de::Visitor<'de>,
+        V: Visitor<'de>,
     {
         visitor.visit_i16(self.parse_int()?)
     }
 
     fn deserialize_i32<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
-        V: serde::de::Visitor<'de>,
+        V: Visitor<'de>,
     {
         visitor.visit_i32(self.parse_int()?)
     }
 
     fn deserialize_i64<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
-        V: serde::de::Visitor<'de>,
+        V: Visitor<'de>,
     {
         visitor.visit_i64(self.parse_int()?)
     }
 
     fn deserialize_u8<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
-        V: serde::de::Visitor<'de>,
+        V: Visitor<'de>,
     {
         visitor.visit_u8(self.parse_uint()?)
     }
 
     fn deserialize_u16<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
-        V: serde::de::Visitor<'de>,
+        V: Visitor<'de>,
     {
         visitor.visit_u16(self.parse_uint()?)
     }
 
     fn deserialize_u32<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
-        V: serde::de::Visitor<'de>,
+        V: Visitor<'de>,
     {
         visitor.visit_u32(self.parse_uint()?)
     }
 
     fn deserialize_u64<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
     where
-        V: serde::de::Visitor<'de>,
+        V: Visitor<'de>,
     {
         visitor.visit_u64(self.parse_uint()?)
     }
 
-    forward_to_deserialize_any! {char string bytes byte_buf option unit_struct newtype_struct tuple tuple_struct struct enum identifier ignored_any
-    f32 f64}
+    fn deserialize_f32<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        visitor.visit_f32(self.parse_float()?)
+    }
+
+    fn deserialize_f64<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        visitor.visit_f64(self.parse_float()?)
+    }
+
+    forward_to_deserialize_any! {char string bytes byte_buf option unit_struct newtype_struct tuple tuple_struct struct enum identifier ignored_any}
 }
 
 struct CommaSeparated<'a, R: Read> {

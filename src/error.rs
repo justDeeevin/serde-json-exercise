@@ -35,6 +35,12 @@ pub enum Error {
         #[source]
         ParseIntError,
     ),
+    #[error("Failed to parse float")]
+    ParseFloat(
+        #[from]
+        #[source]
+        std::num::ParseFloatError,
+    ),
 
     #[error("{0}")]
     Message(String),
