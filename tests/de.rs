@@ -1,3 +1,4 @@
+use serde::Deserialize;
 use serde_json_exercise as json;
 
 #[test]
@@ -59,4 +60,30 @@ fn float() {
     let input = "[-11.22, 1]";
     let json = json::from_str::<Vec<f32>>(input).expect("Failed to deserialize");
     assert_eq!(json, [-11.22, 1.0]);
+}
+
+#[test]
+fn option() {
+    let input = "null";
+    let json = json::from_str::<Option<u8>>(input).expect("Failed to deserialize");
+    assert_eq!(json, None);
+
+    let input = "1";
+    let json = json::from_str::<Option<u8>>(input).expect("Failed to deserialize");
+    assert_eq!(json, Some(1));
+}
+
+#[test]
+fn d_enum() {
+    #[derive(Debug, PartialEq, Deserialize)]
+    enum Test {
+        A(u8),
+        B { a: u8, b: u8 },
+    }
+    let input = r#"{"A":1}"#;
+    let json = json::from_str::<Test>(input).expect("Failed to deserialize");
+    assert_eq!(json, Test::A(1));
+    let input = r#"{"B":{"a":1,"b":2}}"#;
+    let json = json::from_str::<Test>(input).expect("Failed to deserialize");
+    assert_eq!(json, Test::B { a: 1, b: 2 });
 }

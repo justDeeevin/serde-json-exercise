@@ -5,7 +5,7 @@ use std::{
 };
 
 use serde::{
-    de::{DeserializeOwned, MapAccess, SeqAccess, Visitor},
+    de::{DeserializeOwned, IntoDeserializer, MapAccess, SeqAccess, Visitor},
     forward_to_deserialize_any,
 };
 
@@ -180,7 +180,21 @@ impl<R: Read> Deserializer<R> {
             }
         }
         let s = String::from_utf8(buf)?;
-        Ok(unescape(&s[..(s.len() - 1)])?)
+        unescape(&s[..(s.len() - 1)])
+    }
+
+    fn parse_byte_buf(&mut self) -> Result<Vec<u8>> {
+        self.expect_next('[')?;
+        let mut buf = Vec::new();
+        loop {
+            buf.push(self.parse_uint()?);
+            if self.peek()? == b']' {
+                self.next()?;
+                break;
+            }
+            self.expect_next(',')?;
+        }
+        Ok(buf)
     }
 }
 
@@ -351,7 +365,183 @@ impl<'de, R: Read> serde::Deserializer<'de> for &mut Deserializer<R> {
         visitor.visit_f64(self.parse_float()?)
     }
 
-    forward_to_deserialize_any! {char string bytes byte_buf option unit_struct newtype_struct tuple tuple_struct struct enum identifier ignored_any}
+    fn deserialize_option<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        if self.peek()? == b'n' {
+            self.parse_null()?;
+            visitor.visit_none()
+        } else {
+            visitor.visit_some(self)
+        }
+    }
+
+    fn deserialize_unit_struct<V>(
+        self,
+        _name: &'static str,
+        visitor: V,
+    ) -> std::result::Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        self.deserialize_unit(visitor)
+    }
+
+    fn deserialize_newtype_struct<V>(
+        self,
+        _name: &'static str,
+        visitor: V,
+    ) -> std::result::Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        visitor.visit_newtype_struct(self)
+    }
+
+    fn deserialize_tuple<V>(
+        self,
+        _len: usize,
+        visitor: V,
+    ) -> std::result::Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        self.deserialize_seq(visitor)
+    }
+
+    fn deserialize_tuple_struct<V>(
+        self,
+        _name: &'static str,
+        _len: usize,
+        visitor: V,
+    ) -> std::result::Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        self.deserialize_seq(visitor)
+    }
+
+    fn deserialize_struct<V>(
+        self,
+        _name: &'static str,
+        _fields: &'static [&'static str],
+        visitor: V,
+    ) -> std::result::Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        self.deserialize_map(visitor)
+    }
+
+    fn deserialize_enum<V>(
+        self,
+        _name: &'static str,
+        _variants: &'static [&'static str],
+        visitor: V,
+    ) -> std::result::Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        match self.peek()? as char {
+            '"' => visitor.visit_enum(self.parse_string()?.into_deserializer()),
+            '{' => {
+                self.next()?;
+                let value = visitor.visit_enum(Enum(self))?;
+                if self.expect_next('}').is_err() {
+                    Err(Error::Unclosed('{'))
+                } else {
+                    Ok(value)
+                }
+            }
+            c => Err(Error::Unexpected {
+                found: c.to_string(),
+                expected: Some("string or object".to_string()),
+            }),
+        }
+    }
+
+    fn deserialize_char<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        let string = self.parse_string()?;
+        if string.len() != 1 {
+            Err(Error::Unexpected {
+                found: string,
+                expected: Some("single character".to_string()),
+            })
+        } else {
+            visitor.visit_char(string.chars().next().unwrap())
+        }
+    }
+
+    fn deserialize_byte_buf<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        visitor.visit_byte_buf(self.parse_byte_buf()?)
+    }
+
+    fn deserialize_bytes<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        visitor.visit_bytes(&self.parse_byte_buf()?)
+    }
+
+    forward_to_deserialize_any! {string ignored_any identifier}
+}
+
+struct Enum<'a, R: Read>(pub &'a mut Deserializer<R>);
+
+impl<'de, 'a, R: Read> serde::de::EnumAccess<'de> for Enum<'a, R> {
+    type Error = Error;
+    type Variant = Self;
+
+    fn variant_seed<V>(self, seed: V) -> std::result::Result<(V::Value, Self::Variant), Self::Error>
+    where
+        V: serde::de::DeserializeSeed<'de>,
+    {
+        let val = seed.deserialize(&mut *self.0)?;
+        self.0.expect_next(':')?;
+        Ok((val, self))
+    }
+}
+
+impl<'de, 'a, R: Read> serde::de::VariantAccess<'de> for Enum<'a, R> {
+    type Error = Error;
+
+    fn unit_variant(self) -> std::result::Result<(), Self::Error> {
+        Err(Error::Message(
+            "Unit variant case should be handled by deserialize_enum".into(),
+        ))
+    }
+
+    fn newtype_variant_seed<T>(self, seed: T) -> std::result::Result<T::Value, Self::Error>
+    where
+        T: serde::de::DeserializeSeed<'de>,
+    {
+        seed.deserialize(self.0)
+    }
+
+    fn tuple_variant<V>(self, _len: usize, visitor: V) -> std::result::Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        serde::Deserializer::deserialize_seq(self.0, visitor)
+    }
+
+    fn struct_variant<V>(
+        self,
+        _fields: &'static [&'static str],
+        visitor: V,
+    ) -> std::result::Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        serde::Deserializer::deserialize_map(self.0, visitor)
+    }
 }
 
 struct CommaSeparated<'a, R: Read> {

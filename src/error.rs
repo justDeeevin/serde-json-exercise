@@ -25,8 +25,6 @@ pub enum Error {
         found: String,
         expected: Option<String>,
     },
-    #[error("Trailing comma")]
-    TrailingComma,
     #[error("Invalid escape sequence")]
     InvalidEscape,
     #[error("Failed to parse integer")]
