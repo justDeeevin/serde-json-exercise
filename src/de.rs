@@ -24,17 +24,17 @@ impl<R: Read> Deserializer<R> {
         }
     }
 
-    fn next_char(&mut self) -> Result<char> {
+    fn next(&mut self) -> Result<u8> {
         if let Some(hold) = self.hold.take() {
-            return Ok(hold as char);
+            return Ok(hold);
         }
         let mut buf = [0];
         self.input.read_exact(&mut buf)?;
-        Ok(buf[0] as char)
+        Ok(buf[0])
     }
 
     fn expect_next(&mut self, c: char) -> Result<()> {
-        let next = self.next_char()?;
+        let next = self.next()? as char;
         if next == c {
             Ok(())
         } else {
@@ -45,44 +45,43 @@ impl<R: Read> Deserializer<R> {
         }
     }
 
-    fn peek_char(&mut self) -> Result<char> {
+    fn peek(&mut self) -> Result<u8> {
         if let Some(hold) = self.hold {
-            return Ok(hold as char);
+            return Ok(hold);
         }
         let mut buf = [0];
         self.input.read_exact(&mut buf)?;
         self.hold = Some(buf[0]);
-        Ok(buf[0] as char)
+        Ok(buf[0])
     }
 
     /// Collect the digits of an integer
-    fn get_integer(&mut self, mut buf: Vec<char>) -> Result<String> {
+    fn get_integer(&mut self, mut buf: Vec<u8>) -> Result<String> {
         loop {
-            let next = self.peek_char();
-            if let Err(Error::Io(e)) = next {
-                if e.kind() == std::io::ErrorKind::UnexpectedEof {
+            match self.peek() {
+                Err(Error::Io(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
                     break;
-                } else {
-                    return Err(Error::Io(e));
+                }
+                Err(e) => return Err(e),
+                Ok(peek) => {
+                    if (peek as char).is_whitespace() {
+                        self.next()?;
+                        continue;
+                    } else if !peek.is_ascii_digit() {
+                        break;
+                    }
                 }
             }
-            let next = next?;
-            if next.is_whitespace() {
-                self.next_char()?;
-                continue;
-            } else if !next.is_ascii_digit() {
-                break;
-            }
-            buf.push(self.next_char()?);
+            buf.push(self.next()?);
         }
-        Ok(buf.into_iter().collect::<String>())
+        Ok(String::from_utf8(buf)?)
     }
 
     /// Parse a signed integer
     fn parse_int<V: FromStr<Err = ParseIntError>>(&mut self) -> Result<V> {
         let mut buf = Vec::new();
-        if self.peek_char()? == '-' {
-            buf.push(self.next_char()?);
+        if self.peek()? == b'-' {
+            buf.push(self.next()?);
         }
         let string = self.get_integer(buf)?;
         // Previous checks should guarentee that the string is parseable
@@ -98,16 +97,17 @@ impl<R: Read> Deserializer<R> {
     /// Parse a floating-point number
     fn parse_float<V: FromStr<Err = ParseFloatError>>(&mut self) -> Result<V> {
         let mut buf = Vec::new();
-        if self.peek_char()? == '-' {
-            buf.push(self.next_char()?);
+        if self.peek()? == b'-' {
+            buf.push(self.next()?);
         }
         let mut string = self.get_integer(buf)?;
-        if self.peek_char()? == '.' {
-            let buf = vec![self.next_char()?];
+        if self.peek()? == b'.' {
+            let buf = vec![self.next()?];
             string += &self.get_integer(buf)?;
         }
-        if self.peek_char()? == 'e' || self.peek_char()? == 'E' {
-            let buf = vec![self.next_char()?];
+        let peek = self.peek()? as char;
+        if peek == 'e' || peek == 'E' {
+            let buf = vec![self.next()?];
             string += &self.get_integer(buf)?;
         }
 
@@ -120,19 +120,20 @@ impl<R: Read> Deserializer<R> {
         let mut buf = Vec::new();
         let mut signed = false;
         let mut float = false;
-        if self.peek_char()? == '-' {
+        if self.peek()? == b'-' {
             signed = true;
-            buf.push(self.next_char()?);
+            buf.push(self.next()?);
         }
         let mut string = self.get_integer(buf)?;
-        if self.peek_char()? == '.' {
+        if self.peek()? == b'.' {
             float = true;
-            let buf = vec![self.next_char()?];
+            let buf = vec![self.next()?];
             string += &self.get_integer(buf)?;
         }
-        if self.peek_char()? == 'e' || self.peek_char()? == 'E' {
+        let peek = self.peek()? as char;
+        if peek == 'e' || peek == 'E' {
             float = true;
-            let buf = vec![self.next_char()?];
+            let buf = vec![self.next()?];
             string += &self.get_integer(buf)?;
         }
 
@@ -154,7 +155,7 @@ impl<'de, R: Read> serde::Deserializer<'de> for &mut Deserializer<R> {
         V: Visitor<'de>,
     {
         loop {
-            let out = match self.peek_char()? {
+            let out = match self.peek()? as char {
                 '"' => self.deserialize_str(visitor),
                 '[' => self.deserialize_seq(visitor),
                 '{' => self.deserialize_map(visitor),
@@ -162,7 +163,7 @@ impl<'de, R: Read> serde::Deserializer<'de> for &mut Deserializer<R> {
                 't' | 'f' => self.deserialize_bool(visitor),
                 '-' | '0'..='9' => self.parse_number(visitor),
                 w if w.is_whitespace() => {
-                    self.next_char()?;
+                    self.next()?;
                     continue;
                 }
                 c => Err(Error::Unexpected {
@@ -232,7 +233,7 @@ impl<'de, R: Read> serde::Deserializer<'de> for &mut Deserializer<R> {
     where
         V: Visitor<'de>,
     {
-        match self.peek_char()? {
+        match self.peek()? as char {
             't' => {
                 let mut buf = [0; 4];
                 self.input.read_exact(&mut buf)?;
@@ -358,8 +359,8 @@ impl<'a, 'de, R: Read> SeqAccess<'de> for CommaSeparated<'a, R> {
     where
         T: serde::de::DeserializeSeed<'de>,
     {
-        if self.de.peek_char()? == ']' {
-            self.de.next_char()?;
+        if self.de.peek()? == b']' {
+            self.de.next()?;
             return Ok(None);
         }
 
@@ -379,8 +380,8 @@ impl<'a, 'de, R: Read> MapAccess<'de> for CommaSeparated<'a, R> {
     where
         K: serde::de::DeserializeSeed<'de>,
     {
-        if self.de.peek_char()? == '}' {
-            self.de.next_char()?;
+        if self.de.peek()? == b'}' {
+            self.de.next()?;
             return Ok(None);
         }
 
