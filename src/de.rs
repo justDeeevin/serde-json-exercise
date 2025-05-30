@@ -250,7 +250,8 @@ impl<'de, R: Read> serde::Deserializer<'de> for &mut Deserializer<R> {
         match self.peek()? as char {
             't' => {
                 let mut buf = [0; 4];
-                self.input.read_exact(&mut buf)?;
+                buf[0] = b't';
+                self.input.read_exact(&mut buf[1..])?;
                 if buf.as_slice() == b"true" {
                     visitor.visit_bool(true)
                 } else {
@@ -262,7 +263,8 @@ impl<'de, R: Read> serde::Deserializer<'de> for &mut Deserializer<R> {
             }
             'f' => {
                 let mut buf = [0; 5];
-                self.input.read_exact(&mut buf)?;
+                buf[0] = b'f';
+                self.input.read_exact(&mut buf[1..])?;
                 if buf.as_slice() == b"false" {
                     visitor.visit_bool(false)
                 } else {
