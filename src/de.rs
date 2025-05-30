@@ -145,6 +145,43 @@ impl<R: Read> Deserializer<R> {
             visitor.visit_u64(string.parse()?)
         }
     }
+
+    fn parse_null(&mut self) -> Result<()> {
+        let mut buf = [0; 4];
+        if let Some(hold) = self.hold {
+            buf[0] = hold;
+            self.input.read_exact(&mut buf[1..])?;
+        } else {
+            self.input.read_exact(&mut buf)?;
+        }
+        if buf.as_slice() != b"null" {
+            Err(Error::Unexpected {
+                found: String::from_utf8(buf.to_vec())?,
+                expected: Some("null".to_string()),
+            })
+        } else {
+            Ok(())
+        }
+    }
+
+    fn parse_string(&mut self) -> Result<String> {
+        self.expect_next('"')?;
+
+        let mut buf = Vec::new();
+        loop {
+            self.input.read_until(b'"', &mut buf)?;
+            if buf.last() != Some(&b'"') {
+                return Err(Error::Unclosed('"'));
+            }
+            let len = buf.len();
+            let check_index = if len < 3 { len - 1 } else { len - 2 };
+            if buf[check_index] != b'\\' {
+                break;
+            }
+        }
+        let s = String::from_utf8(buf)?;
+        Ok(unescape(&s[..(s.len() - 1)])?)
+    }
 }
 
 impl<'de, R: Read> serde::Deserializer<'de> for &mut Deserializer<R> {
@@ -179,22 +216,7 @@ impl<'de, R: Read> serde::Deserializer<'de> for &mut Deserializer<R> {
     where
         V: Visitor<'de>,
     {
-        self.expect_next('"')?;
-
-        let mut buf = Vec::new();
-        loop {
-            self.input.read_until(b'"', &mut buf)?;
-            if buf.last() != Some(&b'"') {
-                return Err(Error::Unclosed('"'));
-            }
-            let len = buf.len();
-            let check_index = if len < 3 { len - 1 } else { len - 2 };
-            if buf[check_index] != b'\\' {
-                break;
-            }
-        }
-        let s = String::from_utf8(buf)?;
-        visitor.visit_str(&unescape(&s[..(s.len() - 1)])?)
+        visitor.visit_str(&self.parse_string()?)
     }
 
     fn deserialize_seq<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
@@ -217,16 +239,8 @@ impl<'de, R: Read> serde::Deserializer<'de> for &mut Deserializer<R> {
     where
         V: Visitor<'de>,
     {
-        let mut buf = [0; 4];
-        self.input.read_exact(&mut buf)?;
-        if buf.as_slice() != b"null" {
-            Err(Error::Unexpected {
-                found: String::from_utf8(buf.to_vec())?,
-                expected: Some("null".to_string()),
-            })
-        } else {
-            visitor.visit_unit()
-        }
+        self.parse_null()?;
+        visitor.visit_unit()
     }
 
     fn deserialize_bool<V>(self, visitor: V) -> std::result::Result<V::Value, Self::Error>
