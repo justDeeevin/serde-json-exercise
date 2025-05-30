@@ -212,20 +212,17 @@ impl<'de, R: Read> serde::Deserializer<'de> for &mut Deserializer<R> {
     where
         V: Visitor<'de>,
     {
-        loop {
-            let out = match self.peek()? as char {
-                '"' => self.deserialize_str(visitor),
-                '[' => self.deserialize_seq(visitor),
-                '{' => self.deserialize_map(visitor),
-                'n' => self.deserialize_unit(visitor),
-                't' | 'f' => self.deserialize_bool(visitor),
-                '-' | '0'..='9' => self.parse_number(visitor),
-                c => Err(Error::Unexpected {
-                    found: c.to_string(),
-                    expected: None,
-                }),
-            };
-            return out;
+        match self.peek()? as char {
+            '"' => self.deserialize_str(visitor),
+            '[' => self.deserialize_seq(visitor),
+            '{' => self.deserialize_map(visitor),
+            'n' => self.deserialize_unit(visitor),
+            't' | 'f' => self.deserialize_bool(visitor),
+            '-' | '0'..='9' => self.parse_number(visitor),
+            c => Err(Error::Unexpected {
+                found: c.to_string(),
+                expected: None,
+            }),
         }
     }
 
